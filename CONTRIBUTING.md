@@ -211,16 +211,26 @@ pnpm run frontend:orbit-check
 ```
 3. Backend checks (Clippy):
 ```bash
-cd backend && cargo clippy --workspace --all-targets --all-features -- -D warnings
+pnpm run backend:clippy
+# or: cd backend && cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 4. Smart contract checks (Clippy in contracts):
 ```bash
-cd backend/contracts && cargo clippy --workspace --all-targets --all-features -- -D warnings
+pnpm run smart-contract:clippy
+# or: cd backend/contracts && cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
-5. All CLI checks:
+5. All CLI checks (recommended before push):
 ```bash
 pnpm run cli-checks
 ```
+
+#### Quick pre-push checklist
+- `pnpm run frontend:orbit-check`
+- `pnpm run backend:clippy`
+- `pnpm run smart-contract:clippy`
+- `pnpm run cli-checks`
+
+> NOTE: Do not push `.md` docs directly in feature branches. Any documentation updates must be included in a PR with code changes and reviewed as part of the standard workflow.
 ### Frontend Tests
 ```bash
 # Unit tests (coming soon)
