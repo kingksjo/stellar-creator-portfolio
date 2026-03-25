@@ -6,6 +6,8 @@ import { Footer } from '@/components/footer';
 import { CreatorCard } from '@/components/creator-card';
 import { creators, disciplines, getCreatorsByDiscipline } from '@/lib/creators-data';
 import { Button } from '@/components/ui/button';
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent, EmptyMedia } from '@/components/ui/empty';
+import { Users } from 'lucide-react';
 
 export default function CreatorsPage() {
   const [selectedDiscipline, setSelectedDiscipline] = useState<string>('All');
@@ -68,17 +70,25 @@ export default function CreatorsPage() {
                 </div>
               </>
             ) : (
-              <div className="text-center py-12">
-                <p className="text-lg text-muted-foreground mb-4">
-                  No creators found in this category.
-                </p>
-                <Button
-                  variant="outline"
-                  onClick={() => setSelectedDiscipline('All')}
-                >
-                  View All Creators
-                </Button>
-              </div>
+              <Empty className="min-h-[400px]">
+                <EmptyMedia variant="icon">
+                  <Users className="size-6" />
+                </EmptyMedia>
+                <EmptyHeader>
+                  <EmptyTitle>No creators found</EmptyTitle>
+                  <EmptyDescription>
+                    No creators match your selected discipline. Try viewing all creators or select a different category.
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button
+                    variant="outline"
+                    onClick={() => setSelectedDiscipline('All')}
+                  >
+                    View All Creators
+                  </Button>
+                </EmptyContent>
+              </Empty>
             )}
           </div>
         </section>
