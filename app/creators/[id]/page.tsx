@@ -8,6 +8,7 @@ import { ProjectCard } from '@/components/project-card';
 import { Button } from '@/components/ui/button';
 import { creators } from '@/lib/creators-data';
 import { ArrowLeft, Linkedin, Twitter, ExternalLink } from 'lucide-react';
+import { SocialShare } from '@/components/social-share';
 import Image from 'next/image';
 import { buildOptimizationProps, buildSizes } from '@/lib/image-utils';
 
@@ -96,7 +97,7 @@ export default function CreatorProfilePage({ params }: CreatorProfilePageProps) 
                 </p>
 
                 {/* Social Links */}
-                <div className="flex gap-3 mb-8">
+                <div className="flex flex-wrap gap-3 mb-8">
                   {creator.linkedIn && (
                     <a
                       href={creator.linkedIn}
@@ -130,6 +131,11 @@ export default function CreatorProfilePage({ params }: CreatorProfilePageProps) 
                       Portfolio
                     </a>
                   )}
+                  <SocialShare
+                    title={`Check out ${creator.name} on Stellar Creators`}
+                    description={creator.tagline}
+                    url={`/creators/${creator.id}`}
+                  />
                 </div>
               </div>
 
