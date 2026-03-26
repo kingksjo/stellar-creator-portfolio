@@ -66,16 +66,12 @@ export default function RootLayout({
       <body className="font-sans antialiased">
         <SessionProvider>
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+            <AnalyticsClient plausibleDomain={PLAUSIBLE_DOMAIN} />
             {children}
+            <Toaster richColors closeButton position="top-right" />
             <Analytics />
           </ThemeProvider>
         </SessionProvider>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <AnalyticsClient plausibleDomain={PLAUSIBLE_DOMAIN} />
-          {children}
-          <Toaster richColors closeButton position="top-right" />
-          <Analytics />
-        </ThemeProvider>
       </body>
     </html>
   )

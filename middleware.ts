@@ -7,8 +7,8 @@ export default withAuth(
     const isAuth = !!token;
     const isAuthPage = req.nextUrl.pathname.startsWith('/auth');
     const isDashboard = req.nextUrl.pathname.startsWith('/dashboard');
+    const isAdmin = req.nextUrl.pathname.startsWith('/admin');
 
-    // Redirect logic
     if (isAuthPage && isAuth) {
       return NextResponse.redirect(new URL('/dashboard', req.url));
     }
@@ -17,11 +17,28 @@ export default withAuth(
       return NextResponse.redirect(new URL('/auth/login', req.url));
     }
 
+    // Admin routes require ADMIN role
+    if (isAdmin) {
+      if (!isAuth) {
+        return NextResponse.redirect(new URL('/auth/login', req.url));
+      }
+      if (token?.role !== 'ADMIN') {
+        return NextResponse.redirect(new URL('/dashboard', req.url));
+      }
+    }
+
     return NextResponse.next();
   },
   {
     callbacks: {
-      authorized: ({ token }) => !!token,
+      authorized: ({ token, req }) => {
+        // Allow public access to non-protected routes
+        const pathname = req.nextUrl.pathname;
+        if (pathname.startsWith('/admin') || pathname.startsWith('/dashboard')) {
+          return !!token;
+        }
+        return true;
+      },
     },
   }
 );
@@ -29,6 +46,7 @@ export default withAuth(
 export const config = {
   matcher: [
     '/dashboard/:path*',
+    '/admin/:path*',
     '/auth/:path*',
     '/api/auth/:path*',
   ],

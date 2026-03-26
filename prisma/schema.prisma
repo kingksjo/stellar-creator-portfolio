@@ -172,3 +172,39 @@ enum ApplicationStatus {
   REJECTED
   WITHDRAWN
 }
+
+model Review {
+  id                String       @id @default(cuid())
+  creatorId         String
+  reviewerId        String
+  reviewerName      String
+  rating            Int          // 1-5
+  title             String
+  body              String       @db.Text
+  isVerifiedPurchase Boolean     @default(false)
+  helpfulCount      Int          @default(0)
+  notHelpfulCount   Int          @default(0)
+  status            ReviewStatus @default(PENDING)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([creatorId])
+  @@index([reviewerId])
+  @@index([status])
+}
+
+model ReviewVote {
+  id        String @id @default(cuid())
+  reviewId  String
+  userId    String
+  vote      String // "helpful" | "not_helpful"
+
+  @@unique([reviewId, userId])
+  @@index([reviewId])
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}

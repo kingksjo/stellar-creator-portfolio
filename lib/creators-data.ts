@@ -20,6 +20,17 @@ export interface Service {
   reviewCount: number;
 }
 
+export type VerificationStatus = 'unverified' | 'pending' | 'verified';
+
+export type SpecialBadge = 'top-rated' | 'responsive' | 'certified' | 'rising-star';
+
+export interface VerificationInfo {
+  status: VerificationStatus;
+  verifiedAt?: string; // ISO date string
+  verifiedBy?: string; // admin name
+  badges?: SpecialBadge[];
+}
+
 export interface Creator {
   id: string;
   name: string;
@@ -45,6 +56,7 @@ export interface Creator {
   availability?: 'available' | 'limited' | 'unavailable';
   rating?: number;
   reviewCount?: number;
+  verification?: VerificationInfo;
 }
 
 export const creators: Creator[] = [
@@ -96,6 +108,12 @@ export const creators: Creator[] = [
         year: 2023,
       },
     ],
+    verification: {
+      status: 'verified',
+      verifiedAt: '2024-03-15T10:00:00Z',
+      verifiedBy: 'Admin',
+      badges: ['top-rated', 'certified'],
+    },
   },
   {
     id: 'maya-writes',
@@ -144,6 +162,12 @@ export const creators: Creator[] = [
         year: 2023,
       },
     ],
+    verification: {
+      status: 'verified',
+      verifiedAt: '2024-01-20T09:00:00Z',
+      verifiedBy: 'Admin',
+      badges: ['top-rated', 'responsive'],
+    },
   },
   {
     id: 'jordan-creative',
@@ -193,6 +217,9 @@ export const creators: Creator[] = [
         year: 2023,
       },
     ],
+    verification: {
+      status: 'pending',
+    },
   },
   {
     id: 'sophia-ux',
@@ -241,6 +268,9 @@ export const creators: Creator[] = [
         year: 2023,
       },
     ],
+    verification: {
+      status: 'unverified',
+    },
   },
 ];
 
@@ -376,6 +406,62 @@ export const getCreatorsByDiscipline = (discipline: string): Creator[] => {
   if (discipline === 'All') return creators;
   return creators.filter(creator => creator.discipline === discipline);
 };
+
+export interface CreatorSearchParams {
+  query?: string;
+  discipline?: string;
+  skills?: string[];
+  experienceRange?: string; // e.g. '3-5', '10+', or 'All'
+  sort?: 'relevance' | 'most-reviewed' | 'highest-rated' | 'most-experienced';
+}
+
+const EXPERIENCE_RANGES: Record<string, [number, number]> = {
+  '0-2':  [0, 2],
+  '3-5':  [3, 5],
+  '6-10': [6, 10],
+  '10+':  [10, 999],
+};
+
+export function searchCreators(params: CreatorSearchParams): Creator[] {
+  const { query = '', discipline = 'All', skills = [], experienceRange = 'All', sort = 'relevance' } = params;
+  const q = query.toLowerCase().trim();
+
+  let results = creators.filter((c) => {
+    if (discipline !== 'All' && c.discipline !== discipline) return false;
+
+    if (skills.length > 0 && !skills.every((s) => c.skills.some((cs) => cs.toLowerCase() === s.toLowerCase()))) return false;
+
+    if (experienceRange !== 'All') {
+      const range = EXPERIENCE_RANGES[experienceRange];
+      const exp = c.stats?.experience ?? 0;
+      if (!range || exp < range[0] || exp > range[1]) return false;
+    }
+
+    if (q) {
+      return (
+        c.name.toLowerCase().includes(q) ||
+        c.title.toLowerCase().includes(q) ||
+        c.bio.toLowerCase().includes(q) ||
+        c.discipline.toLowerCase().includes(q) ||
+        c.skills.some((s) => s.toLowerCase().includes(q))
+      );
+    }
+
+    return true;
+  });
+
+  switch (sort) {
+    case 'most-reviewed':   results = [...results].sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0)); break;
+    case 'highest-rated':   results = [...results].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0)); break;
+    case 'most-experienced': results = [...results].sort((a, b) => (b.stats?.experience ?? 0) - (a.stats?.experience ?? 0)); break;
+  }
+
+  return results;
+}
+
+export const ALL_SKILLS = Array.from(
+  new Set(creators.flatMap((c) => c.skills))
+).sort();
 
 export const getBountiesByCategory = (category: string): Bounty[] => {
   if (category === 'All') return bounties;

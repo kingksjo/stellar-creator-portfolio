@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
+import { sendEmail } from '@/lib/email/mailer';
 
 const prisma = new PrismaClient();
 
@@ -43,12 +44,17 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // TODO: Send reset email
-    // In production, send an email with the reset link
-    console.log('Password reset token:', resetToken);
-    console.log('Reset link (dev):', 
-      `${process.env.NEXTAUTH_URL}/auth/reset-password?token=${resetToken}&email=${email}`
-    );
+    const resetUrl = `${process.env.NEXTAUTH_URL}/auth/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
+
+    await sendEmail({
+      to: email,
+      subject: 'Reset your password – Stellar Creators',
+      template: 'reset-password',
+      variables: {
+        name: user.name ?? email,
+        resetUrl,
+      },
+    });
 
     return NextResponse.json(
       { message: 'If that email exists, we\'ve sent a reset link' },

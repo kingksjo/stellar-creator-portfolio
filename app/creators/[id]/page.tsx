@@ -2,12 +2,16 @@
 
 import { notFound } from 'next/navigation';
 import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import type { AggregateRating } from '@/lib/review-service';
 import { Header } from '@/components/header';
 import { Footer } from '@/components/footer';
 import { ProjectCard } from '@/components/project-card';
 import { Button } from '@/components/ui/button';
 import { creators } from '@/lib/creators-data';
-import { ArrowLeft, Linkedin, Twitter, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Linkedin, Twitter, ExternalLink, Star, Settings2 } from 'lucide-react';
+import { useSession } from 'next-auth/react';
+import { AggregateRatingDisplay } from '@/components/rating-display';
 import { SocialShare } from '@/components/social-share';
 import Image from 'next/image';
 import { buildOptimizationProps, buildSizes } from '@/lib/image-utils';
@@ -20,7 +24,9 @@ interface CreatorProfilePageProps {
 
 export default function CreatorProfilePage({ params }: CreatorProfilePageProps) {
   const router = useRouter();
+  const { data: session } = useSession();
   const creator = creators.find((c) => c.id === params.id);
+  const [aggregate, setAggregate] = useState<AggregateRating | null>(null);
   const heroSizes = buildSizes({
     mobile: '100vw',
     tablet: '100vw',
@@ -31,6 +37,14 @@ export default function CreatorProfilePage({ params }: CreatorProfilePageProps) 
   if (!creator) {
     notFound();
   }
+
+  // Fetch aggregate rating
+  useEffect(() => {
+    fetch(`/api/reviews?creatorId=${creator.id}&limit=1000`)
+      .then((r) => r.json())
+      .then((d) => setAggregate(d.aggregate))
+      .catch(() => {});
+  }, [creator.id]);
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -63,6 +77,21 @@ export default function CreatorProfilePage({ params }: CreatorProfilePageProps) 
               <ArrowLeft size={20} />
             </Button>
           </div>
+
+          {/* Customize Button - only visible to the creator */}
+          {session && (
+            <div className="absolute top-6 right-4 sm:right-6 lg:right-8">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="bg-background/80 backdrop-blur-sm hover:bg-background/90 gap-1.5"
+                onClick={() => router.push(`/creators/${creator.id}/customize`)}
+              >
+                <Settings2 size={16} />
+                Customize
+              </Button>
+            </div>
+          )}
         </section>
 
         {/* Profile Section */}
@@ -214,6 +243,27 @@ export default function CreatorProfilePage({ params }: CreatorProfilePageProps) 
                   <ProjectCard key={project.id} project={project} />
                 ))}
               </div>
+            </div>
+          </section>
+        )}
+
+        {/* Reviews Section */}
+        {aggregate && aggregate.total > 0 && (
+          <section className="border-b border-border py-12">
+            <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-foreground">Reviews</h2>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push(`/creators/${creator.id}/reviews`)}
+                  className="gap-1.5"
+                >
+                  <Star size={14} />
+                  See all {aggregate.total} reviews
+                </Button>
+              </div>
+              <AggregateRatingDisplay aggregate={aggregate} />
             </div>
           </section>
         )}

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import { sendEmail } from '@/lib/email/mailer';
 
 const prisma = new PrismaClient();
 
@@ -46,6 +47,21 @@ export async function GET(request: NextRequest) {
     await prisma.verificationToken.delete({
       where: { id: verificationToken.id },
     });
+
+    const { user } = verificationToken;
+    const appUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
+
+    // Send welcome email (fire-and-forget — don't block the response)
+    sendEmail({
+      to: user.email!,
+      subject: 'Welcome to Stellar Creators',
+      template: 'welcome',
+      variables: {
+        name: user.name ?? user.email!,
+        dashboardUrl: `${appUrl}/dashboard`,
+        isCreator: user.role === 'CREATOR',
+      },
+    }).catch((err) => console.error('[mailer] Failed to send welcome email:', err));
 
     return NextResponse.json(
       { message: 'Email verified successfully. You can now log in.' },

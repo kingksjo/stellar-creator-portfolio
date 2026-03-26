@@ -5,6 +5,37 @@ export const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(10),
 })
 
+export const bountyFilterSchema = z.object({
+  category: z.string().max(100).optional(),
+  difficulty: z.enum(['beginner', 'intermediate', 'advanced', 'expert']).optional(),
+  status: z.enum(['open', 'in-progress', 'completed', 'cancelled']).optional(),
+  budget_min: z.coerce.number().nonnegative().optional(),
+  budget_max: z.coerce.number().positive().optional(),
+  sort_by: z.enum(['posted_date', 'budget']).optional(),
+  sort_order: z.enum(['asc', 'desc']).optional(),
+}).refine(
+  (data: { budget_min?: number; budget_max?: number }) =>
+    data.budget_min === undefined || data.budget_max === undefined || data.budget_min <= data.budget_max,
+  { message: 'budget_min must be less than or equal to budget_max', path: ['budget_min'] }
+)
+
+export const creatorFilterSchema = z.object({
+  discipline: z.string().max(100).optional(),
+  availability: z.enum(['available', 'limited', 'unavailable']).optional(),
+  hourly_rate_min: z.coerce.number().nonnegative().optional(),
+  hourly_rate_max: z.coerce.number().positive().optional(),
+  skills: z.string().max(500).optional(), // comma-separated list
+  sort_by: z.enum(['created_at', 'hourly_rate', 'rating', 'completedProjects']).optional(),
+  sort_order: z.enum(['asc', 'desc']).optional(),
+}).refine(
+  (data: { hourly_rate_min?: number; hourly_rate_max?: number }) =>
+    data.hourly_rate_min === undefined || data.hourly_rate_max === undefined || data.hourly_rate_min <= data.hourly_rate_max,
+  { message: 'hourly_rate_min must be less than or equal to hourly_rate_max', path: ['hourly_rate_min'] }
+)
+
+export type BountyFilterInput = z.infer<typeof bountyFilterSchema>
+export type CreatorFilterInput = z.infer<typeof creatorFilterSchema>
+
 export const creatorSchema = z.object({
   name: z.string().min(1).max(100),
   title: z.string().min(1).max(200),
@@ -74,6 +105,27 @@ export type UserUpdateInput = z.infer<typeof userUpdateSchema>
 export type ApplicationInput = z.infer<typeof applicationSchema>
 export type ApplicationUpdateInput = z.infer<typeof applicationUpdateSchema>
 export type PaginationInput = z.infer<typeof paginationSchema>
+
+export const reviewSchema = z.object({
+  creatorId: z.string().min(1),
+  rating: z.number().int().min(1).max(5),
+  title: z.string().min(1).max(100),
+  body: z.string().min(10).max(2000),
+})
+
+export const reviewVoteSchema = z.object({
+  reviewId: z.string().min(1),
+  vote: z.enum(['helpful', 'not_helpful']),
+})
+
+export const reviewModerateSchema = z.object({
+  reviewId: z.string().min(1),
+  status: z.enum(['approved', 'rejected']),
+})
+
+export type ReviewInput = z.infer<typeof reviewSchema>
+export type ReviewVoteInput = z.infer<typeof reviewVoteSchema>
+export type ReviewModerateInput = z.infer<typeof reviewModerateSchema>
 
 export function validateRequest<T>(
   schema: z.ZodSchema<T>,

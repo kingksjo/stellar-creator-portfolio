@@ -214,7 +214,6 @@ export default function DashboardPage() {
             </Card>
           )}
 
-          {/* Analytics Card */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -226,9 +225,11 @@ export default function DashboardPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button variant="outline" className="w-full" disabled>
-                Coming Soon
-              </Button>
+              <Link href="/dashboard/analytics">
+                <Button variant="outline" className="w-full">
+                  View Analytics
+                </Button>
+              </Link>
             </CardContent>
           </Card>
         </div>

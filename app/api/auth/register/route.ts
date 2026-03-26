@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { sendEmail } from '@/lib/email/mailer';
 
 const prisma = new PrismaClient();
 
@@ -60,12 +61,17 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // TODO: Send verification email
-    // In production, you would send an email with the verification link
-    console.log('Verification token created:', verificationToken.token);
-    console.log('Verification link (dev):', 
-      `${process.env.NEXTAUTH_URL}/auth/verify?token=${verificationToken.token}`
-    );
+    const verificationUrl = `${process.env.NEXTAUTH_URL}/auth/verify?token=${verificationToken.token}`;
+
+    await sendEmail({
+      to: email,
+      subject: 'Verify your email address – Stellar Creators',
+      template: 'verify-email',
+      variables: {
+        name: name ?? email,
+        verificationUrl,
+      },
+    });
 
     // Return user without password
     const { password: _, ...userWithoutPassword } = user;
