@@ -16,7 +16,21 @@
     "frontend:orbit-check": "pnpm lint",
     "backend:clippy": "cd backend && rustup component add clippy && cargo clippy --workspace --all-targets --all-features -- -D warnings",
     "smart-contract:clippy": "cd backend/contracts && rustup component add clippy && cargo clippy --workspace --all-targets --all-features -- -D warnings",
-    "cli-checks": "pnpm run frontend:orbit-check && pnpm run backend:clippy && pnpm run smart-contract:clippy"
+    "cli-checks": "pnpm run frontend:orbit-check && pnpm run backend:clippy && pnpm run smart-contract:clippy",
+    "load:smoke": "k6 run load-tests/smoke.test.js",
+    "load:stress": "k6 run load-tests/stress.test.js",
+    "load:soak": "k6 run load-tests/soak.test.js",
+    "load:spike": "k6 run load-tests/spike.test.js",
+    "load:auth": "k6 run load-tests/scenarios/auth.test.js",
+    "load:bounties": "k6 run load-tests/scenarios/bounties.test.js",
+    "load:creators": "k6 run load-tests/scenarios/creators.test.js",
+    "load:users": "k6 run load-tests/scenarios/users.test.js",
+    "load:reviews": "k6 run load-tests/scenarios/reviews.test.js",
+    "load:messages": "k6 run load-tests/scenarios/messages.test.js",
+    "load:analytics": "k6 run load-tests/scenarios/analytics.test.js",
+    "load:referrals": "k6 run load-tests/scenarios/referrals.test.js",
+    "load:upload": "k6 run load-tests/scenarios/upload.test.js",
+    "load:rust-api": "k6 run load-tests/scenarios/rust-api.test.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.744.0",
