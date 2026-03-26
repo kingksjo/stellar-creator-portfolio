@@ -138,7 +138,7 @@ async fn health() -> HttpResponse {
     HttpResponse::Ok().json(serde_json::json!({
         "status": "healthy",
         "service": "stellar-api",
-        "version": "0.1.0"
+        "version": env!("CARGO_PKG_VERSION")
     }))
 }
 
@@ -363,6 +363,7 @@ async fn get_bounty(
     )
 )]
 async fn apply_for_bounty(
+    state: web::Data<AppState>,
     path: web::Path<u64>,
     body: web::Json<BountyApplication>,
     pool: web::Data<PgPool>,
@@ -805,9 +806,11 @@ async fn main() -> std::io::Result<()> {
     let redis_pool = cfg.create_pool(Some(Runtime::Tokio1)).expect("Failed to create Redis pool");
 
     tracing::info!("Starting Stellar API on {}:{}", host, port);
-    tracing::info!("Swagger UI available at http://{}:{}/swagger-ui/", host, port);
-
-    let openapi = ApiDoc::openapi();
+    tracing::info!(
+        "Swagger UI available at http://{}:{}/swagger-ui/",
+        host,
+        port
+    );
 
     HttpServer::new(move || {
         App::new()
@@ -817,15 +820,17 @@ async fn main() -> std::io::Result<()> {
             .wrap(middleware::Logger::default())
             .wrap(middleware::NormalizePath::trim())
             .service(
-                SwaggerUi::new("/swagger-ui/{_:.*}")
-                    .url("/api-docs/openapi.json", openapi.clone()),
+                SwaggerUi::new("/swagger-ui/{_:.*}").url("/api-docs/openapi.json", openapi.clone()),
             )
             .route("/health", web::get().to(health))
             .route("/api/bounties", web::post().to(create_bounty))
             .route("/api/bounties", web::get().to(list_bounties))
             .route("/api/bounties/{id}", web::get().to(get_bounty))
             .route("/api/bounties/{id}/apply", web::post().to(apply_for_bounty))
-            .route("/api/freelancers/register", web::post().to(register_freelancer))
+            .route(
+                "/api/freelancers/register",
+                web::post().to(register_freelancer),
+            )
             .route("/api/freelancers", web::get().to(list_freelancers))
             .route("/api/freelancers/{address}", web::get().to(get_freelancer))
             .route("/api/escrow/{id}", web::get().to(get_escrow))
@@ -839,6 +844,7 @@ async fn main() -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use actix_web::{body::to_bytes, http::StatusCode, test};
 
     #[test]
     fn test_api_response_ok() {
@@ -862,5 +868,154 @@ mod tests {
         assert!(paths.contains_key("/api/bounties"));
         assert!(paths.contains_key("/api/freelancers"));
         assert!(paths.contains_key("/api/escrow/{id}"));
+    }
+
+    #[test]
+    fn create_bounty_commits_all_related_writes() {
+        let store = Store::default();
+
+        let created = store
+            .create_bounty(BountyRequest {
+                creator: "GCREATOR".to_string(),
+                title: "Design a logo".to_string(),
+                description: "Need a logo".to_string(),
+                budget: 100,
+                deadline: 12345,
+            })
+            .expect("bounty should be created");
+
+        let db = store.db.lock().expect("db poisoned");
+        assert_eq!(
+            db.bounties.get(&created.id).map(|b| b.title.as_str()),
+            Some("Design a logo")
+        );
+        assert!(db
+            .creator_bounties
+            .get("GCREATOR")
+            .is_some_and(|bounties| bounties.contains(&created.id)));
+    }
+
+    #[test]
+    fn create_bounty_rolls_back_when_transaction_fails_midway() {
+        let store = Store::default();
+        store.set_fail_after_write(Some(1));
+
+        let result = store.create_bounty(BountyRequest {
+            creator: "GCREATOR".to_string(),
+            title: "Broken create".to_string(),
+            description: "Should rollback".to_string(),
+            budget: 100,
+            deadline: 12345,
+        });
+
+        assert!(matches!(result, Err(ApiError::Internal(_))));
+        let db = store.db.lock().expect("db poisoned");
+        assert!(db.bounties.is_empty());
+        assert!(db.creator_bounties.is_empty());
+    }
+
+    #[test]
+    fn apply_for_bounty_rolls_back_all_writes_on_failure() {
+        let store = Store::default();
+        store.seed_bounty(BountyRecord {
+            id: 1,
+            creator: "GCREATOR".to_string(),
+            title: "Design a logo".to_string(),
+            description: "Need a logo".to_string(),
+            budget: 100,
+            deadline: 12345,
+            status: "open".to_string(),
+            application_count: 0,
+        });
+        store.set_fail_after_write(Some(2));
+
+        let result = store.apply_for_bounty(BountyApplication {
+            bounty_id: 1,
+            freelancer: "GFREELANCER".to_string(),
+            proposal: "I can do it".to_string(),
+            proposed_budget: 90,
+            timeline: 7,
+        });
+
+        assert!(matches!(result, Err(ApiError::Internal(_))));
+        let db = store.db.lock().expect("db poisoned");
+        assert!(db.applications.is_empty());
+        assert!(db.bounty_applications.is_empty());
+        assert_eq!(db.bounties.get(&1).map(|b| b.application_count), Some(0));
+    }
+
+    #[test]
+    fn duplicate_freelancer_registration_does_not_partially_persist() {
+        let store = Store::default();
+
+        store
+            .register_freelancer(FreelancerRegistration {
+                name: "Alice Doe".to_string(),
+                discipline: "Design".to_string(),
+                bio: "Bio".to_string(),
+            })
+            .expect("initial registration should succeed");
+
+        let duplicate = store.register_freelancer(FreelancerRegistration {
+            name: "Alice Doe".to_string(),
+            discipline: "Design".to_string(),
+            bio: "Updated bio".to_string(),
+        });
+
+        assert!(matches!(duplicate, Err(ApiError::Conflict(_))));
+        let db = store.db.lock().expect("db poisoned");
+        assert_eq!(db.freelancers.len(), 1);
+        assert_eq!(
+            db.discipline_index.get("Design").map(BTreeSet::len),
+            Some(1)
+        );
+    }
+
+    #[actix_web::test]
+    async fn apply_handler_rejects_path_body_mismatch_without_writes() {
+        let state = AppState::default();
+        state.store.seed_bounty(BountyRecord {
+            id: 1,
+            creator: "GCREATOR".to_string(),
+            title: "Design a logo".to_string(),
+            description: "Need a logo".to_string(),
+            budget: 100,
+            deadline: 12345,
+            status: "open".to_string(),
+            application_count: 0,
+        });
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state.clone()))
+                .route("/api/bounties/{id}/apply", web::post().to(apply_for_bounty)),
+        )
+        .await;
+
+        let request = test::TestRequest::post()
+            .uri("/api/bounties/1/apply")
+            .set_json(BountyApplication {
+                bounty_id: 2,
+                freelancer: "GFREELANCER".to_string(),
+                proposal: "I can do it".to_string(),
+                proposed_budget: 90,
+                timeline: 7,
+            })
+            .to_request();
+
+        let response = test::call_service(&app, request).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = to_bytes(response.into_body())
+            .await
+            .expect("body should be readable");
+        let payload: ApiResponse<serde_json::Value> =
+            serde_json::from_slice(&body).expect("response should deserialize");
+        assert!(!payload.success);
+
+        let db = state.store.db.lock().expect("db poisoned");
+        assert!(db.applications.is_empty());
+        assert!(db.bounty_applications.is_empty());
+        assert_eq!(db.bounties.get(&1).map(|b| b.application_count), Some(0));
     }
 }
