@@ -48,6 +48,12 @@ anyhow = "1.0"
 futures = "0.3"
 dotenvy = "0.15"
 
+# OpenAPI / Swagger
+utoipa = { version = "4", features = ["actix_extras"] }
+utoipa-swagger-ui = { version = "7", features = ["actix-web"] }
+# HTTP client (indexer polls Horizon/Soroban RPC)
+reqwest = { version = "0.12", features = ["json"] }
+
 # Testing
 tokio-test = "0.4"
 
