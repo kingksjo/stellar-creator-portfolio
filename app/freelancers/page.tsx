@@ -7,7 +7,8 @@ import { Footer } from '@/components/footer';
 import { CreatorCard } from '@/components/creator-card';
 import { Button } from '@/components/ui/button';
 import { creators, disciplines } from '@/lib/creators-data';
-import { ArrowRight, Search, Star } from 'lucide-react';
+import { ArrowRight, Search, Star, UserX } from 'lucide-react';
+import { EmptyState } from '@/components/empty-state';
 
 export default function FreelancersPage() {
   const [selectedDiscipline, setSelectedDiscipline] = useState('All');

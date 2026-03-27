@@ -2,9 +2,9 @@ name: CLI checks
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   cli-checks:
@@ -18,24 +18,34 @@ jobs:
         with:
           node-version: 20
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
       - name: Install dependencies
         run: pnpm install
 
-      - name: Run frontend Orbit-style lint
+      - name: Run frontend lint
         run: pnpm run frontend:orbit-check
 
       - name: Setup Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
+          components: clippy
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Run backend clippy
         run: pnpm run backend:clippy
 
       - name: Run smart contract clippy
         run: pnpm run smart-contract:clippy
-
-      - name: Run combined CLI checks
-        run: pnpm run cli-checks

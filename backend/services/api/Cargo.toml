@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web.workspace = true
+actix-cors = "0.7"
 actix-rt.workspace = true
 tokio.workspace = true
 serde.workspace = true
@@ -21,9 +22,24 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
+chrono.workspace = true
+dotenvy.workspace = true
 futures.workspace = true
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
+jsonwebtoken.workspace = true
+redis.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+dotenvy.workspace = true
+uuid.workspace = true
+redis.workspace = true
+deadpool-redis.workspace = true
+utoipa.workspace = true
+utoipa-swagger-ui.workspace = true
+reqwest.workspace = true
+uuid.workspace = true
+actix-web-prom.workspace = true
+prometheus.workspace = true

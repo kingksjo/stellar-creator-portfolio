@@ -1,15 +1,14 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String};
 
-/// Freelancer Profile
 #[contracttype]
 pub struct FreelancerProfile {
     pub address: Address,
     pub name: String,
     pub discipline: String,
     pub bio: String,
-    pub rating: u32, // 0-500 represents 0-5 stars (fixed point)
+    pub rating: u32,
     pub total_rating_count: u32,
     pub completed_projects: u32,
     pub total_earnings: i128,
@@ -17,59 +16,18 @@ pub struct FreelancerProfile {
     pub created_at: u64,
 }
 
-#[contract]
-pub trait FreelancerContractTrait {
-    /// Register a new freelancer
-    fn register_freelancer(
-        env: Env,
-        freelancer: Address,
-        name: String,
-        discipline: String,
-        bio: String,
-    ) -> bool;
-
-    /// Get freelancer profile
-    fn get_profile(env: Env, freelancer: Address) -> FreelancerProfile;
-
-    /// Update freelancer rating
-    fn update_rating(
-        env: Env,
-        freelancer: Address,
-        new_rating: u32,
-    ) -> bool;
-
-    /// Update completed projects
-    fn update_completed_projects(
-        env: Env,
-        freelancer: Address,
-    ) -> bool;
-
-    /// Update total earnings
-    fn update_earnings(
-        env: Env,
-        freelancer: Address,
-        amount: i128,
-    ) -> bool;
-
-    /// Verify freelancer
-    fn verify_freelancer(
-        env: Env,
-        freelancer: Address,
-    ) -> bool;
-
-    /// Check if freelancer is verified
-    fn is_verified(env: Env, freelancer: Address) -> bool;
-
-    /// Get freelancers count
-    fn get_freelancers_count(env: Env) -> u32;
+#[contracttype]
+pub enum DataKey {
+    FreelancerCount,
+    Profile(Address),
 }
 
-#[contractimpl]
+#[contract]
 pub struct FreelancerContract;
 
 #[contractimpl]
-impl FreelancerContractTrait for FreelancerContract {
-    fn register_freelancer(
+impl FreelancerContract {
+    pub fn register_freelancer(
         env: Env,
         freelancer: Address,
         name: String,
@@ -78,15 +36,13 @@ impl FreelancerContractTrait for FreelancerContract {
     ) -> bool {
         freelancer.require_auth();
 
-        let profile_key = Symbol::new(&env, &format!("profile_{}", freelancer));
-        
-        // Check if already registered
-        if env.storage().persistent().has(&profile_key) {
+        let key = DataKey::Profile(freelancer.clone());
+        if env.storage().persistent().has(&key) {
             return false;
         }
 
         let profile = FreelancerProfile {
-            address: freelancer.clone(),
+            address: freelancer,
             name,
             discipline,
             bio,
@@ -98,123 +54,146 @@ impl FreelancerContractTrait for FreelancerContract {
             created_at: env.ledger().timestamp(),
         };
 
-        env.storage().persistent().set(&profile_key, &profile);
+        env.storage().persistent().set(&key, &profile);
 
-        // Increment freelancers count
-        let count_key = Symbol::new(&env, "freelancer_count");
         let count: u32 = env
             .storage()
             .persistent()
-            .get::<Symbol, u32>(&count_key)
+            .get(&DataKey::FreelancerCount)
             .unwrap_or(0);
-        env.storage().persistent().set(&count_key, &(count + 1));
+        env.storage()
+            .persistent()
+            .set(&DataKey::FreelancerCount, &(count + 1));
 
         true
     }
 
-    fn get_profile(env: Env, freelancer: Address) -> FreelancerProfile {
-        let profile_key = Symbol::new(&env, &format!("profile_{}", freelancer));
+    pub fn get_profile(env: Env, freelancer: Address) -> FreelancerProfile {
         env.storage()
             .persistent()
-            .get::<Symbol, FreelancerProfile>(&profile_key)
+            .get(&DataKey::Profile(freelancer))
             .expect("Freelancer not registered")
     }
 
-    fn update_rating(
-        env: Env,
-        freelancer: Address,
-        new_rating: u32,
-    ) -> bool {
-        let profile_key = Symbol::new(&env, &format!("profile_{}", freelancer));
-        let mut profile = env
+    pub fn update_rating(env: Env, freelancer: Address, new_rating: u32) -> bool {
+        let key = DataKey::Profile(freelancer);
+        let mut profile: FreelancerProfile = env
             .storage()
             .persistent()
-            .get::<Symbol, FreelancerProfile>(&profile_key)
+            .get(&key)
             .expect("Freelancer not registered");
 
-        // Calculate new average rating
         let total = (profile.rating as u64) * (profile.total_rating_count as u64);
-        let new_total = total + (new_rating as u64);
         profile.total_rating_count += 1;
-        profile.rating = (new_total / (profile.total_rating_count as u64)) as u32;
+        profile.rating = ((total + new_rating as u64) / profile.total_rating_count as u64) as u32;
 
-        env.storage().persistent().set(&profile_key, &profile);
-
+        env.storage().persistent().set(&key, &profile);
         true
     }
 
-    fn update_completed_projects(
-        env: Env,
-        freelancer: Address,
-    ) -> bool {
-        let profile_key = Symbol::new(&env, &format!("profile_{}", freelancer));
-        let mut profile = env
+    pub fn update_completed_projects(env: Env, freelancer: Address) -> bool {
+        let key = DataKey::Profile(freelancer);
+        let mut profile: FreelancerProfile = env
             .storage()
             .persistent()
-            .get::<Symbol, FreelancerProfile>(&profile_key)
+            .get(&key)
             .expect("Freelancer not registered");
 
         profile.completed_projects += 1;
-        env.storage().persistent().set(&profile_key, &profile);
-
+        env.storage().persistent().set(&key, &profile);
         true
     }
 
-    fn update_earnings(
-        env: Env,
-        freelancer: Address,
-        amount: i128,
-    ) -> bool {
-        let profile_key = Symbol::new(&env, &format!("profile_{}", freelancer));
-        let mut profile = env
+    pub fn update_earnings(env: Env, freelancer: Address, amount: i128) -> bool {
+        let key = DataKey::Profile(freelancer);
+        let mut profile: FreelancerProfile = env
             .storage()
             .persistent()
-            .get::<Symbol, FreelancerProfile>(&profile_key)
+            .get(&key)
             .expect("Freelancer not registered");
 
         profile.total_earnings += amount;
-        env.storage().persistent().set(&profile_key, &profile);
-
+        env.storage().persistent().set(&key, &profile);
         true
     }
 
-    fn verify_freelancer(
-        env: Env,
-        freelancer: Address,
-    ) -> bool {
-        let profile_key = Symbol::new(&env, &format!("profile_{}", freelancer));
-        let mut profile = env
+    pub fn verify_freelancer(env: Env, admin: Address, freelancer: Address) -> bool {
+        admin.require_auth();
+
+        let key = DataKey::Profile(freelancer);
+        let mut profile: FreelancerProfile = env
             .storage()
             .persistent()
-            .get::<Symbol, FreelancerProfile>(&profile_key)
+            .get(&key)
             .expect("Freelancer not registered");
 
-        // In a real scenario, this would require admin auth
-        // For now, any verified contract can verify
         profile.verified = true;
-        env.storage().persistent().set(&profile_key, &profile);
-
+        env.storage().persistent().set(&key, &profile);
         true
     }
 
-    fn is_verified(env: Env, freelancer: Address) -> bool {
-        let profile_key = Symbol::new(&env, &format!("profile_{}", freelancer));
-        if let Ok(profile) = env
-            .storage()
-            .persistent()
-            .get::<Symbol, FreelancerProfile>(&profile_key)
-        {
-            profile.verified
-        } else {
-            false
-        }
-    }
-
-    fn get_freelancers_count(env: Env) -> u32 {
-        let count_key = Symbol::new(&env, "freelancer_count");
+    pub fn is_verified(env: Env, freelancer: Address) -> bool {
         env.storage()
             .persistent()
-            .get::<Symbol, u32>(&count_key)
+            .get::<DataKey, FreelancerProfile>(&DataKey::Profile(freelancer))
+            .map(|p| p.verified)
+            .unwrap_or(false)
+    }
+
+    pub fn get_freelancers_count(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::FreelancerCount)
             .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::Env;
+
+    #[test]
+    fn test_register_freelancer() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(FreelancerContract, ());
+        let client = FreelancerContractClient::new(&env, &contract_id);
+
+        let freelancer = Address::generate(&env);
+        let result = client.register_freelancer(
+            &freelancer,
+            &String::from_str(&env, "Alice"),
+            &String::from_str(&env, "UI/UX Design"),
+            &String::from_str(&env, "Designer with 5 years experience"),
+        );
+
+        assert!(result);
+        assert_eq!(client.get_freelancers_count(), 1);
+        assert!(!client.is_verified(&freelancer));
+    }
+
+    #[test]
+    fn test_duplicate_registration_returns_false() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(FreelancerContract, ());
+        let client = FreelancerContractClient::new(&env, &contract_id);
+
+        let freelancer = Address::generate(&env);
+        client.register_freelancer(
+            &freelancer,
+            &String::from_str(&env, "Alice"),
+            &String::from_str(&env, "Design"),
+            &String::from_str(&env, "Bio"),
+        );
+        let second = client.register_freelancer(
+            &freelancer,
+            &String::from_str(&env, "Alice"),
+            &String::from_str(&env, "Design"),
+            &String::from_str(&env, "Bio"),
+        );
+        assert!(!second);
     }
 }
