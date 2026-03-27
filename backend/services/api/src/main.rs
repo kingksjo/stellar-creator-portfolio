@@ -5,6 +5,7 @@ use actix_web::{http::StatusCode, middleware, web, App, HttpResponse, HttpServer
 use deadpool_redis::{redis::AsyncCommands, Config, Pool, Runtime};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
+use stellar_discovery::{create_discovery, ServiceInfo};
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 use uuid::Uuid;
@@ -818,7 +819,7 @@ async fn main() -> std::io::Result<()> {
     );
     tracing::info!("Prometheus metrics available at http://{}:{}/metrics", host, port);
 
-    HttpServer::new(move || {
+    let server = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(db_pool.clone()))
             .app_data(web::Data::new(redis_pool.clone()))
@@ -853,7 +854,14 @@ async fn main() -> std::io::Result<()> {
     })
     .bind((host.as_str(), port))?
     .run()
-    .await
+    .await;
+
+    // Deregister from service discovery on shutdown
+    if let Err(e) = discovery.deregister(&service_id).await {
+        tracing::warn!("Service discovery deregistration failed: {e}");
+    }
+
+    server
 }
 
 #[cfg(test)]
