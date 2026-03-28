@@ -20,6 +20,8 @@ pub struct FreelancerProfile {
 pub enum DataKey {
     FreelancerCount,
     Profile(Address),
+    Governance,
+    Deployer,
 }
 
 #[contract]
@@ -220,14 +222,33 @@ impl FreelancerContract {
     /// - Panics if admin fails authentication.
     /// - Panics if freelancer not registered.
     pub fn verify_freelancer(env: Env, admin: Address, freelancer: Address) -> bool {
+        // Require the caller to authenticate as the admin address passed in.
         admin.require_auth();
+
+        // If a governance contract is configured, delegate the admin-role check to it.
+        // This keeps verification meaningful: only addresses that the governance
+        // contract recognizes as admins can verify freelancers. If no governance
+        // contract is configured, fall back to the legacy behaviour (auth only).
+        if let Some(gov) = env.storage().persistent().get::<DataKey, Address>(&DataKey::Governance) {
+                // Call governance contract's `is_admin` entrypoint. If it returns
+                // false, reject. We expect the governance contract to expose a
+                // method named `is_admin` that takes an Address and returns bool.
+                // If the governance contract is not present or doesn't expose the
+                // method, this will trap at runtime — that's intentional to make
+                // misconfiguration visible.
+                let is_admin: bool = env.invoke_contract(&gov, &symbol_short!("is_admin"), (admin.clone(),));
+                if !is_admin {
+                    panic!("Admin role required");
+                }
+            }
+        }
 
         let key = DataKey::Profile(freelancer.clone());
         let mut profile: FreelancerProfile = env
             .storage()
             .persistent()
             .get(&key)
-            .expect(\"Freelancer not registered\");
+            .expect("Freelancer not registered");
 
         profile.verified = true;
         env.storage().persistent().set(&key, &profile);
@@ -238,6 +259,32 @@ impl FreelancerContract {
             (admin, true),
         );
 
+        true
+    }
+
+    /// Sets the governance contract address used for admin role checks.
+    /// Can be called by any address that authenticates; this is intentionally
+    /// permissive to allow initial configuration. Operators should set this
+    /// to the governance contract address and then manage admin roles via the
+    /// governance contract itself.
+    pub fn set_governance_contract(env: Env, setter: Address, governance: Address) -> bool {
+        setter.require_auth();
+
+        // If deployer not set yet, record the first setter as the deployer.
+        let maybe_deployer: Option<Address> = env.storage().persistent().get(&DataKey::Deployer);
+        if let Some(deployer) = maybe_deployer {
+            // Only the recorded deployer can change the governance address
+            if deployer != setter {
+                panic!("Only deployer may set governance contract");
+            }
+        } else {
+            // Record the setter as deployer on first-time configuration
+            env.storage().persistent().set(&DataKey::Deployer, &setter);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Governance, &governance);
         true
     }
 
@@ -322,5 +369,47 @@ mod tests {
             &String::from_str(&env, \"Bio\"),
         );
         assert!(!second);
+    }
+
+    #[test]
+    fn test_verify_requires_governance_admin() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+    // Deploy governance contract and make `owner` the owner.
+    let gov_id = env.register(stellar_governance_contract::GovernanceContract, ());
+    let gov_client = stellar_governance_contract::GovernanceContractClient::new(&env, &gov_id);
+
+        let owner = Address::generate(&env);
+        assert!(gov_client.init(&owner));
+
+        // Deploy freelancer contract
+        let contract_id = env.register(FreelancerContract, ());
+        let client = FreelancerContractClient::new(&env, &contract_id);
+
+        // Configure freelancer contract to point to governance contract
+        let setter = owner.clone();
+        assert!(client.set_governance_contract(&setter, &gov_id));
+
+        let admin = Address::generate(&env);
+        // At this point admin is not an admin in governance → verify should panic
+        let freelancer = Address::generate(&env);
+        client.register_freelancer(
+            &freelancer,
+            &String::from_str(&env, "Frank"),
+            &String::from_str(&env, "Design"),
+            &String::from_str(&env, "Bio"),
+        );
+
+        // Trying to verify with non-admin should panic. We assert by catching the trap
+        let res = std::panic::catch_unwind(|| {
+            client.verify_freelancer(&admin, &freelancer);
+        });
+        assert!(res.is_err());
+
+        // Now add admin via governance and retry
+        assert!(gov_client.add_admin(&owner, &admin));
+        assert!(client.verify_freelancer(&admin, &freelancer));
+        assert!(client.is_verified(&freelancer));
     }
 }
