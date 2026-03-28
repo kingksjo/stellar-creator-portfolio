@@ -77,6 +77,10 @@ pub struct Evidence {
 // - Instance: Frequently accessed, contract-lifetime data (counters, active state)
 // - Persistent: Permanent records (bounties, applications, disputes, evidence)
 // - Temporary: Short-lived workflow data (not used here, but for future: pending approvals)
+
+// Maximum applications allowed per bounty to prevent spam
+pub const MAX_APPLICATIONS_PER_BOUNTY: u32 = 100;
+
 #[contracttype]
 pub enum DataKey {
     // Instance storage - frequently accessed counters
@@ -90,6 +94,9 @@ pub enum DataKey {
     // Persistent storage - dispute records
     Dispute(u64),
     EvidenceList(u64),
+    // Persistent storage - application tracking for rate limiting
+    ApplicationsPerBounty(u64),
+    ApplicationsPerFreelancer(Address),
 }
 
 #[contract]
