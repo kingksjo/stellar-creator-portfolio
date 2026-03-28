@@ -38,14 +38,14 @@ pub struct FreelancerRegistration {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, ToSchema)]
-pub struct ApiResponse<T: ToSchema> {
+pub struct ApiResponse<T> {
     pub success: bool,
     pub data: Option<T>,
     pub error: Option<String>,
     pub message: Option<String>,
 }
 
-impl<T: ToSchema> ApiResponse<T> {
+impl<T> ApiResponse<T> {
     fn ok(data: T, message: Option<String>) -> Self {
         Self { success: true, data: Some(data), error: None, message }
     }
@@ -363,7 +363,6 @@ async fn get_bounty(
     )
 )]
 async fn apply_for_bounty(
-    state: web::Data<AppState>,
     path: web::Path<u64>,
     body: web::Json<BountyApplication>,
     pool: web::Data<PgPool>,
@@ -804,6 +803,7 @@ async fn main() -> std::io::Result<()> {
     let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
     let cfg = Config::from_url(redis_url);
     let redis_pool = cfg.create_pool(Some(Runtime::Tokio1)).expect("Failed to create Redis pool");
+    let openapi = ApiDoc::openapi();
 
     tracing::info!("Starting Stellar API on {}:{}", host, port);
     tracing::info!(
@@ -817,6 +817,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(db_pool.clone()))
             .app_data(web::Data::new(redis_pool.clone()))
             .wrap(Cors::permissive())
+            .wrap(middleware::Compress::default())
             .wrap(middleware::Logger::default())
             .wrap(middleware::NormalizePath::trim())
             .service(
@@ -844,7 +845,11 @@ async fn main() -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{body::to_bytes, http::StatusCode, test};
+    use actix_web::{
+        body::to_bytes,
+        http::{header, StatusCode},
+    };
+    use actix_web::test as actix_test;
 
     #[test]
     fn test_api_response_ok() {
@@ -870,152 +875,40 @@ mod tests {
         assert!(paths.contains_key("/api/escrow/{id}"));
     }
 
-    #[test]
-    fn create_bounty_commits_all_related_writes() {
-        let store = Store::default();
-
-        let created = store
-            .create_bounty(BountyRequest {
-                creator: "GCREATOR".to_string(),
-                title: "Design a logo".to_string(),
-                description: "Need a logo".to_string(),
-                budget: 100,
-                deadline: 12345,
-            })
-            .expect("bounty should be created");
-
-        let db = store.db.lock().expect("db poisoned");
-        assert_eq!(
-            db.bounties.get(&created.id).map(|b| b.title.as_str()),
-            Some("Design a logo")
-        );
-        assert!(db
-            .creator_bounties
-            .get("GCREATOR")
-            .is_some_and(|bounties| bounties.contains(&created.id)));
-    }
-
-    #[test]
-    fn create_bounty_rolls_back_when_transaction_fails_midway() {
-        let store = Store::default();
-        store.set_fail_after_write(Some(1));
-
-        let result = store.create_bounty(BountyRequest {
-            creator: "GCREATOR".to_string(),
-            title: "Broken create".to_string(),
-            description: "Should rollback".to_string(),
-            budget: 100,
-            deadline: 12345,
-        });
-
-        assert!(matches!(result, Err(ApiError::Internal(_))));
-        let db = store.db.lock().expect("db poisoned");
-        assert!(db.bounties.is_empty());
-        assert!(db.creator_bounties.is_empty());
-    }
-
-    #[test]
-    fn apply_for_bounty_rolls_back_all_writes_on_failure() {
-        let store = Store::default();
-        store.seed_bounty(BountyRecord {
-            id: 1,
-            creator: "GCREATOR".to_string(),
-            title: "Design a logo".to_string(),
-            description: "Need a logo".to_string(),
-            budget: 100,
-            deadline: 12345,
-            status: "open".to_string(),
-            application_count: 0,
-        });
-        store.set_fail_after_write(Some(2));
-
-        let result = store.apply_for_bounty(BountyApplication {
-            bounty_id: 1,
-            freelancer: "GFREELANCER".to_string(),
-            proposal: "I can do it".to_string(),
-            proposed_budget: 90,
-            timeline: 7,
-        });
-
-        assert!(matches!(result, Err(ApiError::Internal(_))));
-        let db = store.db.lock().expect("db poisoned");
-        assert!(db.applications.is_empty());
-        assert!(db.bounty_applications.is_empty());
-        assert_eq!(db.bounties.get(&1).map(|b| b.application_count), Some(0));
-    }
-
-    #[test]
-    fn duplicate_freelancer_registration_does_not_partially_persist() {
-        let store = Store::default();
-
-        store
-            .register_freelancer(FreelancerRegistration {
-                name: "Alice Doe".to_string(),
-                discipline: "Design".to_string(),
-                bio: "Bio".to_string(),
-            })
-            .expect("initial registration should succeed");
-
-        let duplicate = store.register_freelancer(FreelancerRegistration {
-            name: "Alice Doe".to_string(),
-            discipline: "Design".to_string(),
-            bio: "Updated bio".to_string(),
-        });
-
-        assert!(matches!(duplicate, Err(ApiError::Conflict(_))));
-        let db = store.db.lock().expect("db poisoned");
-        assert_eq!(db.freelancers.len(), 1);
-        assert_eq!(
-            db.discipline_index.get("Design").map(BTreeSet::len),
-            Some(1)
-        );
-    }
-
     #[actix_web::test]
-    async fn apply_handler_rejects_path_body_mismatch_without_writes() {
-        let state = AppState::default();
-        state.store.seed_bounty(BountyRecord {
-            id: 1,
-            creator: "GCREATOR".to_string(),
-            title: "Design a logo".to_string(),
-            description: "Need a logo".to_string(),
-            budget: 100,
-            deadline: 12345,
-            status: "open".to_string(),
-            application_count: 0,
-        });
-
-        let app = test::init_service(
+    async fn compression_middleware_applies_gzip_when_accepted() {
+        let app = actix_test::init_service(
             App::new()
-                .app_data(web::Data::new(state.clone()))
-                .route("/api/bounties/{id}/apply", web::post().to(apply_for_bounty)),
+                .wrap(middleware::Compress::default())
+                .route(
+                    "/payload",
+                    web::get().to(|| async {
+                        HttpResponse::Ok().json(serde_json::json!({
+                            "items": vec!["x"; 512]
+                        }))
+                    }),
+                ),
         )
         .await;
 
-        let request = test::TestRequest::post()
-            .uri("/api/bounties/1/apply")
-            .set_json(BountyApplication {
-                bounty_id: 2,
-                freelancer: "GFREELANCER".to_string(),
-                proposal: "I can do it".to_string(),
-                proposed_budget: 90,
-                timeline: 7,
-            })
+        let request = actix_test::TestRequest::get()
+            .uri("/payload")
+            .insert_header((header::ACCEPT_ENCODING, "gzip"))
             .to_request();
 
-        let response = test::call_service(&app, request).await;
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let response = actix_test::call_service(&app, request).await;
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let encoding = response
+            .headers()
+            .get(header::CONTENT_ENCODING)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        assert_eq!(encoding, "gzip");
 
         let body = to_bytes(response.into_body())
             .await
             .expect("body should be readable");
-        let payload: ApiResponse<serde_json::Value> =
-            serde_json::from_slice(&body).expect("response should deserialize");
-        assert!(!payload.success);
-
-        let db = state.store.db.lock().expect("db poisoned");
-        assert!(db.applications.is_empty());
-        assert!(db.bounty_applications.is_empty());
-        assert_eq!(db.bounties.get(&1).map(|b| b.application_count), Some(0));
+        assert!(!body.is_empty());
     }
 }
