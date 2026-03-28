@@ -1,5 +1,6 @@
 #![no_std]
 
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String, Vec, Symbol};
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String, Vec};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -22,6 +23,7 @@ pub enum DisputeResult {
 }
 
 #[contracttype]
+#[derive(Clone)]
 pub struct Bounty {
     pub id: u64,
     pub creator: Address,
@@ -34,6 +36,7 @@ pub struct Bounty {
 }
 
 #[contracttype]
+#[derive(Clone)]
 pub struct BountyApplication {
     pub id: u64,
     pub bounty_id: u64,
@@ -143,8 +146,8 @@ impl BountyContract {
 
         let bounty = Bounty {
             id: counter,
-            creator,
-            title,
+            creator: creator.clone(),
+            title: title.clone(),
             description,
             budget,
             deadline,
@@ -160,6 +163,12 @@ impl BountyContract {
         env.storage()
             .instance()
             .set(&DataKey::BountyCounter, &counter);
+
+        // Emit BountyCreated event
+        env.events().publish(
+            (Symbol::new(&env, "bounty_create"), counter),
+            (&title, budget, deadline),
+        );
 
         counter
     }
@@ -218,8 +227,8 @@ impl BountyContract {
         let application = BountyApplication {
             id: counter,
             bounty_id,
-            freelancer,
-            proposal,
+            freelancer: freelancer.clone(),
+            proposal: proposal.clone(),
             proposed_budget,
             timeline,
             created_at: env.ledger().timestamp(),
@@ -233,6 +242,23 @@ impl BountyContract {
         env.storage()
             .instance()
             .set(&DataKey::AppCounter, &counter);
+
+        // Track application ID under the bounty
+        let mut app_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::BountyApplications(bounty_id))
+            .unwrap_or(Vec::new(&env));
+        app_ids.push_back(counter);
+        env.storage()
+            .persistent()
+            .set(&DataKey::BountyApplications(bounty_id), &app_ids);
+
+        // Emit BountyApplied event
+        env.events().publish(
+            (Symbol::new(&env, "bounty_apply"), bounty_id, counter),
+            (&freelancer, &proposal, proposed_budget),
+        );
 
         counter
     }
@@ -275,7 +301,7 @@ impl BountyContract {
     /// - Sets selected freelancer.
     /// - Updates bounty status to `InProgress`.
     pub fn select_freelancer(env: Env, bounty_id: u64, application_id: u64) -> bool {
-        let mut bounty: Bounty = env
+        let bounty: Bounty = env
             .storage()
             .persistent()
             .get(&DataKey::Bounty(bounty_id))
@@ -367,7 +393,7 @@ impl BountyContract {
     /// - Marks work submission as approved (if exists).
     /// - Updates bounty status to `Completed`.
     pub fn complete_bounty(env: Env, bounty_id: u64) -> bool {
-        let mut bounty: Bounty = env
+        let bounty: Bounty = env
             .storage()
             .persistent()
             .get(&DataKey::Bounty(bounty_id))
@@ -408,7 +434,7 @@ impl BountyContract {
     /// # State Changes
     /// - Updates status to `Cancelled`.
     pub fn cancel_bounty(env: Env, bounty_id: u64) -> bool {
-        let mut bounty: Bounty = env
+        let bounty: Bounty = env
             .storage()
             .persistent()
             .get(&DataKey::Bounty(bounty_id))
