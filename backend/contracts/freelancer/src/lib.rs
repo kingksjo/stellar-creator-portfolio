@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol};
 
 #[contracttype]
 pub struct FreelancerProfile {
@@ -24,6 +24,9 @@ pub enum DataKey {
 
 #[contract]
 pub struct FreelancerContract;
+
+// Shared topic prefix for all freelancer events — allows indexers to filter by contract.
+const FREELANCER: Symbol = symbol_short!("freelancer");
 
 #[contractimpl]
 impl FreelancerContract {
@@ -59,9 +62,10 @@ impl FreelancerContract {
             return false;
         }
 
+        let timestamp = env.ledger().timestamp();
         let profile = FreelancerProfile {
-            address: freelancer,
-            name,
+            address: freelancer.clone(),
+            name: name.clone(),
             discipline,
             bio,
             rating: 0,
@@ -69,7 +73,7 @@ impl FreelancerContract {
             completed_projects: 0,
             total_earnings: 0,
             verified: false,
-            created_at: env.ledger().timestamp(),
+            created_at: timestamp,
         };
 
         env.storage().persistent().set(&key, &profile);
@@ -82,6 +86,12 @@ impl FreelancerContract {
         env.storage()
             .persistent()
             .set(&DataKey::FreelancerCount, &(count + 1));
+
+        // Event: freelancer registered
+        env.events().publish(
+            (FREELANCER, symbol_short!("registered"), freelancer),
+            (name, timestamp),
+        );
 
         true
     }
@@ -122,7 +132,7 @@ impl FreelancerContract {
     /// - total = old_rating * count
     /// - new_avg = (total + new_rating) / (count + 1)
     pub fn update_rating(env: Env, freelancer: Address, new_rating: u32) -> bool {
-        let key = DataKey::Profile(freelancer);
+        let key = DataKey::Profile(freelancer.clone());
         let mut profile: FreelancerProfile = env
             .storage()
             .persistent()
@@ -133,7 +143,17 @@ impl FreelancerContract {
         profile.total_rating_count += 1;
         profile.rating = ((total + new_rating as u64) / profile.total_rating_count as u64) as u32;
 
+        let aggregate_rating = profile.rating;
+        let total_reviews = profile.total_rating_count;
+
         env.storage().persistent().set(&key, &profile);
+
+        // Event: freelancer rated
+        env.events().publish(
+            (FREELANCER, symbol_short!("rated"), freelancer),
+            (aggregate_rating, total_reviews),
+        );
+
         true
     }
 
@@ -202,7 +222,7 @@ impl FreelancerContract {
     pub fn verify_freelancer(env: Env, admin: Address, freelancer: Address) -> bool {
         admin.require_auth();
 
-        let key = DataKey::Profile(freelancer);
+        let key = DataKey::Profile(freelancer.clone());
         let mut profile: FreelancerProfile = env
             .storage()
             .persistent()
@@ -211,6 +231,13 @@ impl FreelancerContract {
 
         profile.verified = true;
         env.storage().persistent().set(&key, &profile);
+
+        // Event: freelancer verified
+        env.events().publish(
+            (FREELANCER, symbol_short!("verified"), freelancer),
+            (admin, true),
+        );
+
         true
     }
 
@@ -244,6 +271,9 @@ impl FreelancerContract {
             .unwrap_or(0)
     }
 }
+
+#[cfg(test)]
+mod event_tests;
 
 #[cfg(test)]
 mod tests {
