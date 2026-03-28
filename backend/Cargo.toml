@@ -25,6 +25,9 @@ repository = "https://github.com/stellar/stellar-platform"
 # Soroban SDK
 soroban-sdk = { version = "23.5.2" }
 
+# Local contract dependencies
+stellar-governance-contract = { path = "contracts/governance" }
+
 # Web & HTTP
 actix-web = "4.4"
 actix-rt = "2.9"

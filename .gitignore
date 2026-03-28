@@ -25,6 +25,9 @@ target/
 dist/
 .next/
 
+# Test results
+results/
+
 # TypeScript
 *.tsbuildinfo
 

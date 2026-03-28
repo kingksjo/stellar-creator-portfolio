@@ -3985,6 +3985,7 @@ name = "stellar-freelancer-contract"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellar-governance-contract",
 ]
 
 [[package]]
