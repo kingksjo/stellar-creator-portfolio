@@ -115,6 +115,24 @@ pub enum DataKey {
     EscrowContract,
 }
 
+// =============================================================================
+// SECURITY INVARIANTS (for formal verification / audit reference)
+// =============================================================================
+// INV-1: BountyCounter only increases; bounty IDs are unique and monotonic.
+// INV-2: A bounty status transitions are one-directional:
+//        Open → InProgress | Cancelled | Expired
+//        InProgress → PendingCompletion | Disputed | Expired
+//        PendingCompletion → Completed | Disputed
+//        Disputed → Completed | Cancelled (via resolve_dispute)
+//        Terminal states: Completed, Cancelled, Expired — no further transitions.
+// INV-3: Only the bounty creator may call select_freelancer, complete_bounty, cancel_bounty.
+// INV-4: Only the selected freelancer may call submit_completion.
+// INV-5: Only the creator or selected freelancer may initiate a dispute or submit evidence.
+// INV-6: At most one dispute per bounty (enforced by dispute_exists check).
+// INV-7: Applications per bounty are capped at MAX_APPLICATIONS_PER_BOUNTY.
+// INV-8: Deadline is always in the future at bounty creation time.
+// =============================================================================
+
 #[contract]
 pub struct BountyContract;
 

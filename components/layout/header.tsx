@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { useTheme } from 'next-themes';
-import { Moon, Sun, Menu, X, User, LogOut, LayoutDashboard } from 'lucide-react';
+import { Moon, Sun, Menu, X, User, LogOut, LayoutDashboard, Sparkles } from 'lucide-react';
 import { useRef, useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { MobileNav, MOBILE_NAV_PANEL_ID } from '@/components/layout/mobile-nav';
+import { NotificationBell } from '@/components/notification-bell';
 import { cn } from '@/lib/utils';
 
 const touchIconButtonClass =
@@ -107,9 +108,18 @@ export function Header() {
               About
             </Link>
             {session && (
-              <Link href="/disputes" className="px-4 py-2 text-sm font-medium text-foreground hover:text-primary transition-colors rounded-lg hover:bg-secondary/50">
-                Disputes
-              </Link>
+              <>
+                <Link
+                  href="/matches"
+                  className="px-4 py-2 text-sm font-medium text-foreground hover:text-primary transition-colors rounded-lg hover:bg-secondary/50 inline-flex items-center gap-1.5"
+                >
+                  <Sparkles size={15} className="text-primary shrink-0" aria-hidden />
+                  Matches
+                </Link>
+                <Link href="/disputes" className="px-4 py-2 text-sm font-medium text-foreground hover:text-primary transition-colors rounded-lg hover:bg-secondary/50">
+                  Disputes
+                </Link>
+              </>
             )}
           </nav>
 
@@ -121,6 +131,7 @@ export function Header() {
 
             {session ? (
               <>
+                <NotificationBell />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" className="relative hidden md:inline-flex h-9 w-9 rounded-full">
@@ -149,9 +160,20 @@ export function Header() {
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
+                      <Link href="/matches" className="flex items-center">
+                        <Sparkles className="mr-2 h-4 w-4 text-primary" />
+                        Matches
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
                       <Link href="/dashboard" className="flex items-center">
                         <User className="mr-2 h-4 w-4" />
                         Profile
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/dashboard/settings/notifications" className="flex items-center">
+                        Notifications
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
