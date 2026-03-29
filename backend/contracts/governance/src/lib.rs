@@ -94,8 +94,6 @@ pub struct ProposalExecuted {
 #[contract]
 pub struct GovernanceContract;
 
-const GOVERNANCE: Symbol = symbol_short!("gov");
-
 #[contractimpl]
 impl GovernanceContract {
 	/// Initialize the governance contract owner. Owner must authenticate.
