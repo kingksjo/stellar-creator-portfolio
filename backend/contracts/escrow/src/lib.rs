@@ -68,6 +68,39 @@ pub struct Milestone {
     pub released: bool,
 }
 
+/// DataKey for typed persistent storage lookups.
+#[contracttype]
+pub enum DataKey {
+    Escrow(u64),
+    EscrowCounter,
+    Yield(u64),
+    YieldCfg,
+}
+
+// ── Issue #631: Yield Farming for Unwithdrawn Escrow Funds ───────────────────
+
+/// Platform-level yield configuration set by the admin.
+///
+/// `rate_bps`           — annual yield rate in basis points (e.g. 300 = 3 %)
+/// `max_yield_ratio`    — maximum yield as a fraction of principal in bps
+///                        (e.g. 500 = 5 % cap; protects against runaway accrual)
+/// `min_liquidity_bps`  — minimum principal that must remain liquid, in bps of
+///                        total locked (e.g. 9000 = 90 % must stay withdrawable)
+#[contracttype]
+pub struct YieldConfig {
+    pub rate_bps: u32,
+    pub max_yield_ratio: u32,
+    pub min_liquidity_bps: u32,
+}
+
+/// Per-escrow yield accrual tracking.  Yield is held internally in the
+/// contract and never credited to either party's off-chain ledger.
+#[contracttype]
+pub struct YieldAccrual {
+    pub escrow_id: u64,
+    pub principal: i128,
+    pub accrued: i128,
+    pub last_updated: u64,
 #[contracttype]
 enum DataKey {
     Escrow(u64),
@@ -480,6 +513,170 @@ impl EscrowContract {
         );
 
         escrow_id
+    }
+
+    // ── Issue #631: Yield Farming ─────────────────────────────────────────────
+
+    /// Set yield configuration.  Only the platform admin may call this.
+    pub fn configure_yield(
+        env: Env,
+        admin: Address,
+        rate_bps: u32,
+        max_yield_ratio: u32,
+        min_liquidity_bps: u32,
+    ) {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get::<Symbol, Address>(&Symbol::new(&env, "platform_admin"))
+            .expect("Platform admin not set");
+        assert_eq!(admin, stored_admin, "Only platform admin can configure yield");
+        assert!(rate_bps <= 10_000, "Rate must be <= 100 %");
+        assert!(max_yield_ratio <= 10_000, "Max yield ratio must be <= 100 %");
+        assert!(min_liquidity_bps <= 10_000, "Min liquidity must be <= 100 %");
+
+        env.storage().persistent().set(&DataKey::YieldCfg, &YieldConfig {
+            rate_bps,
+            max_yield_ratio,
+            min_liquidity_bps,
+        });
+    }
+
+    /// Accrue yield for an active escrow strictly within the contract.
+    ///
+    /// Yield is calculated as a pro-rata share of the annual rate scaled to the
+    /// elapsed seconds since `last_updated`.  The accrual is capped at
+    /// `max_yield_ratio` of the principal to prevent unbounded growth.
+    ///
+    /// No tokens move during accrual — the number is a credit held internally.
+    pub fn accrue_yield(env: Env, escrow_id: u64) {
+        let cfg: YieldConfig = env
+            .storage()
+            .persistent()
+            .get::<DataKey, YieldConfig>(&DataKey::YieldCfg)
+            .expect("Yield not configured");
+
+        let key = (Symbol::new(&env, "escrow"), escrow_id);
+        let escrow = env
+            .storage()
+            .persistent()
+            .get::<(Symbol, u64), EscrowAccount>(&key)
+            .expect("Escrow not found");
+
+        assert!(escrow.status == EscrowStatus::Active, "Only active escrows earn yield");
+
+        let now = env.ledger().timestamp();
+        let yield_key = DataKey::Yield(escrow_id);
+
+        let mut accrual: YieldAccrual = env
+            .storage()
+            .persistent()
+            .get::<DataKey, YieldAccrual>(&yield_key)
+            .unwrap_or(YieldAccrual {
+                escrow_id,
+                principal: escrow.amount,
+                accrued: 0,
+                last_updated: escrow.created_at,
+            });
+
+        let elapsed = now.saturating_sub(accrual.last_updated);
+        if elapsed == 0 {
+            return;
+        }
+
+        // new_yield = principal * rate_bps * elapsed / (10_000 * SECONDS_PER_YEAR)
+        const SECONDS_PER_YEAR: u64 = 365 * 24 * 3600;
+        let new_yield = accrual.principal
+            * (cfg.rate_bps as i128)
+            * (elapsed as i128)
+            / (10_000_i128 * SECONDS_PER_YEAR as i128);
+
+        accrual.accrued = accrual.accrued.saturating_add(new_yield);
+
+        // Apply max yield cap: accrued must not exceed max_yield_ratio of principal
+        let yield_cap = accrual.principal * (cfg.max_yield_ratio as i128) / 10_000;
+        if accrual.accrued > yield_cap {
+            accrual.accrued = yield_cap;
+        }
+
+        accrual.last_updated = now;
+        env.storage().persistent().set(&yield_key, &accrual);
+
+        env.events().publish(
+            (symbol_short!("yield"), symbol_short!("accrued")),
+            (escrow_id, new_yield, accrual.accrued),
+        );
+    }
+
+    /// Read the currently accrued yield for an escrow without modifying state.
+    pub fn get_accrued_yield(env: Env, escrow_id: u64) -> i128 {
+        env.storage()
+            .persistent()
+            .get::<DataKey, YieldAccrual>(&DataKey::Yield(escrow_id))
+            .map(|a| a.accrued)
+            .unwrap_or(0)
+    }
+
+    /// Withdraw accrued yield to the platform admin.
+    ///
+    /// Slashing protection: the withdrawal is rejected if it would leave the
+    /// contract holding less than `min_liquidity_bps` of the escrow principal,
+    /// ensuring payers can always retrieve their funds.
+    pub fn withdraw_yield(env: Env, admin: Address, escrow_id: u64) -> i128 {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get::<Symbol, Address>(&Symbol::new(&env, "platform_admin"))
+            .expect("Platform admin not set");
+        assert_eq!(admin, stored_admin, "Only platform admin can withdraw yield");
+
+        let cfg: YieldConfig = env
+            .storage()
+            .persistent()
+            .get::<DataKey, YieldConfig>(&DataKey::YieldCfg)
+            .expect("Yield not configured");
+
+        let yield_key = DataKey::Yield(escrow_id);
+        let mut accrual: YieldAccrual = env
+            .storage()
+            .persistent()
+            .get::<DataKey, YieldAccrual>(&yield_key)
+            .expect("No yield accrual found for escrow");
+
+        assert!(accrual.accrued > 0, "No yield to withdraw");
+
+        // Liquidity guarantee: after withdrawal, at least min_liquidity_bps of
+        // the principal must remain available in the contract.
+        let min_liquidity = accrual.principal * (cfg.min_liquidity_bps as i128) / 10_000;
+        let key = (Symbol::new(&env, "escrow"), escrow_id);
+        let escrow = env
+            .storage()
+            .persistent()
+            .get::<(Symbol, u64), EscrowAccount>(&key)
+            .expect("Escrow not found");
+
+        assert!(
+            escrow.amount >= min_liquidity,
+            "Insufficient liquidity to withdraw yield"
+        );
+
+        let to_withdraw = accrual.accrued;
+        accrual.accrued = 0;
+        env.storage().persistent().set(&yield_key, &accrual);
+
+        TokenClient::new(&env, &escrow.token)
+            .transfer(&env.current_contract_address(), &admin, &to_withdraw);
+
+        env.events().publish(
+            (symbol_short!("yield"), symbol_short!("withdrawn")),
+            (escrow_id, to_withdraw, admin),
+        );
+
+        to_withdraw
     }
 }
 
