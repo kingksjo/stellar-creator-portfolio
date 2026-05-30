@@ -1,16 +1,30 @@
 /**
  * Layout for the `(app)` route group (authenticated screens).
  *
- * Hosts the stack for authenticated screens such as home. The shared
- * `GlobalHeader` is registered as the stack header in Issue 2.
+ * Registers the shared {@link GlobalHeader} as the stack header so every
+ * authenticated screen gets a consistent, platform-aware header. Screens set
+ * their header title via the `title` navigation option.
  */
 import { Stack } from 'expo-router';
+import { GlobalHeader } from '../../src/components';
 
 /**
- * Stack navigator for authenticated routes.
+ * Stack navigator for authenticated routes, using the global header.
  *
- * @returns A {@link Stack} for the `(app)` group.
+ * @returns A {@link Stack} whose header renders {@link GlobalHeader}.
  */
 export default function AppLayout(): React.JSX.Element {
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <Stack
+      screenOptions={{
+        header: ({ options, navigation, back }) => (
+          <GlobalHeader
+            title={options.title ?? ''}
+            showBackButton={back !== undefined}
+            onBackPress={navigation.goBack}
+          />
+        ),
+      }}
+    />
+  );
 }
